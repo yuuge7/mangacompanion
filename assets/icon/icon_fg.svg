@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- glyph only, centered in the adaptive-icon safe zone -->
+  <g transform="translate(512 512) scale(0.62) translate(-512 -512)">
+    <g fill="none" stroke="#ffffff" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M512 330 C 448 282, 340 270, 256 292 L 256 700 C 340 678, 448 690, 512 738"/>
+      <path d="M512 330 C 576 282, 684 270, 768 292 L 768 700 C 684 678, 576 690, 512 738"/>
+      <path d="M512 330 L 512 738"/>
+    </g>
+    <path d="M600 180 L 600 420 L 656 372 L 712 420 L 712 180 Z" fill="#ffffff" opacity="0.92"/>
+  </g>
+</svg>
