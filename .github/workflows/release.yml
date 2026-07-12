@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+
+      - name: Write key.properties
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Compute next version
+        id: version
+        run: |
+          LATEST=$(git tag -l 'v1.*' --sort=-v:refname | head -n1)
+          if [ -z "$LATEST" ]; then
+            NEXT=0
+          else
+            NEXT=$(( ${LATEST#v1.} + 1 ))
+          fi
+          echo "version=1.$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK
+        run: flutter build apk --release --build-name=${{ steps.version.outputs.version }} --build-number=${{ github.run_number }}
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk "MangaCompanion-v${{ steps.version.outputs.version }}.apk"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: MangaCompanion v${{ steps.version.outputs.version }}
+          files: MangaCompanion-v${{ steps.version.outputs.version }}.apk
