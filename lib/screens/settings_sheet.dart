@@ -1,12 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../file_export.dart';
 import '../storage.dart';
 import '../theme.dart';
 
@@ -27,16 +26,23 @@ class _SettingsSheet extends StatelessWidget {
   }
 
   Future<void> _export(BuildContext context) async {
-    final json = state.exportJson();
     final date = DateTime.now().toIso8601String().substring(0, 10);
     final name = 'manga-companion-$date.json';
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$name');
-    await file.writeAsString(json);
-    await SharePlus.instance.share(ShareParams(
-      files: [XFile(file.path, mimeType: 'application/json')],
-      subject: name,
-    ));
+    String? saved;
+    try {
+      saved = await saveTextFile(
+        fileName: name,
+        content: state.exportJson(),
+        mimeType: 'application/json',
+      );
+    } on PlatformException catch (e) {
+      if (context.mounted) {
+        _snack(context, 'Could not save the file: ${e.message}');
+      }
+      return;
+    }
+    if (saved == null || !context.mounted) return; // null: picker dismissed
+    _snack(context, 'Saved $saved');
   }
 
   Future<void> _import(BuildContext context) async {
@@ -200,8 +206,7 @@ class _SettingsSheet extends StatelessWidget {
             context,
             icon: Icons.file_download_outlined,
             title: 'Export data',
-            subtitle:
-                'Share your list as a JSON backup file',
+            subtitle: 'Save your list as a JSON backup file',
             onTap: () => _export(context),
           ),
           _row(
