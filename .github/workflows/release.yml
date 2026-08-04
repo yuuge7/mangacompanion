@@ -38,7 +38,17 @@ jobs:
       # ship every NDK version and AGP's own download of it is unreliable, so
       # install them explicitly. Bump these together with flutter-version.
       - name: Install Android NDK and CMake
-        run: sdkmanager --install "ndk;28.2.13676358" "cmake;3.22.1"
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n1)
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found under $SDK_ROOT/cmdline-tools"
+            exit 1
+          fi
+          "$SDKMANAGER" --install "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Decode keystore
         env:
