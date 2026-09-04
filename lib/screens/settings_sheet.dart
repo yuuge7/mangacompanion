@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../file_export.dart';
+import '../format.dart';
 import '../storage.dart';
 import '../theme.dart';
+import '../widgets/sheet.dart';
 
 Future<void> showSettingsSheet(BuildContext context, AppState state) {
   return showModalBottomSheet<void>(
@@ -17,143 +19,175 @@ Future<void> showSettingsSheet(BuildContext context, AppState state) {
   );
 }
 
-class _SettingsSheet extends StatelessWidget {
+class _SettingsSheet extends StatefulWidget {
   final AppState state;
   const _SettingsSheet({required this.state});
 
-  void _snack(BuildContext context, String msg) {
+  @override
+  State<_SettingsSheet> createState() => _SettingsSheetState();
+}
+
+class _SettingsSheetState extends State<_SettingsSheet> {
+  /// 'export' or 'import' while that job is running; null when idle. Both
+  /// rows lock during either, since both touch the same list.
+  String? _busy;
+
+  AppState get state => widget.state;
+
+  void _snack(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _export(BuildContext context) async {
-    final date = DateTime.now().toIso8601String().substring(0, 10);
-    final name = 'manga-companion-$date.json';
-    String? saved;
+  Future<void> _export() async {
+    setState(() => _busy = 'export');
     try {
-      saved = await saveTextFile(
-        fileName: name,
+      final date = DateTime.now().toIso8601String().substring(0, 10);
+      final saved = await saveTextFile(
+        fileName: 'manga-companion-$date.json',
         content: state.exportJson(),
         mimeType: 'application/json',
       );
-    } on PlatformException catch (e) {
-      if (context.mounted) {
-        _snack(context, 'Could not save the file: ${e.message}');
-      }
-      return;
+      if (saved == null) return; // picker dismissed
+      _snack('Saved $saved');
+    } on PlatformException {
+      // Never show the platform's own message: it names Android internals.
+      _snack('Could not write the file. Pick a different folder and try '
+          'again.');
+    } catch (_) {
+      _snack('Could not write the file. Pick a different folder and try '
+          'again.');
+    } finally {
+      if (mounted) setState(() => _busy = null);
     }
-    if (saved == null || !context.mounted) return; // null: picker dismissed
-    _snack(context, 'Saved $saved');
   }
 
-  Future<void> _import(BuildContext context) async {
-    final picked = await openFile(acceptedTypeGroups: [
-      const XTypeGroup(label: 'JSON backup', extensions: ['json'], mimeTypes: ['application/json']),
-      const XTypeGroup(label: 'Any file'),
-    ]);
-    if (picked == null) return;
-    String raw;
+  Future<void> _import() async {
+    setState(() => _busy = 'import');
     try {
-      raw = utf8.decode(await picked.readAsBytes());
-    } catch (_) {
-      if (context.mounted) _snack(context, 'Could not read that file');
-      return;
-    }
-    final entries = MangaStore.parseExport(raw);
-    if (entries == null || entries.isEmpty) {
-      if (context.mounted) {
-        _snack(context,
-            'Not a valid backup file (expected a JSON array of entries)');
-      }
-      return;
-    }
-    if (!context.mounted) return;
+      final picked = await openFile(acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'JSON backup',
+          extensions: ['json'],
+          mimeTypes: ['application/json'],
+        ),
+        const XTypeGroup(label: 'Any file'),
+      ]);
+      if (picked == null) return;
 
-    final mode = await showDialog<String>(
+      String raw;
+      try {
+        raw = utf8.decode(await picked.readAsBytes());
+      } catch (_) {
+        _snack('Could not read that file. It may not be a text backup.');
+        return;
+      }
+
+      final entries = MangaStore.parseExport(raw);
+      if (entries == null || entries.isEmpty) {
+        _snack('No titles found in that file. Pick a backup exported from '
+            'Manga Companion.');
+        return;
+      }
+      if (!mounted) return;
+
+      final mode = await _askImportMode(entries.length);
+      if (mode == null || !mounted) return;
+
+      final added =
+          await state.importEntries(entries, replace: mode == 'replace');
+      if (!mounted) return;
+      Navigator.of(context).pop(); // close settings, show the result on top
+      _snack(mode == 'replace'
+          ? 'Replaced your shelf with ${titleCount(entries.length)}'
+          : 'Merged: $added added, ${entries.length - added} updated');
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<String?> _askImportMode(int count) {
+    final t = context.tk;
+    return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.card,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: AppColors.cardBorder)),
-        title: const Text('Import entries',
-            style: TextStyle(color: AppColors.text, fontSize: 17)),
+        title: const Text('Import this backup?'),
         content: Text(
-          'Found ${entries.length} entries in the file.\n\n'
-          'Merge keeps your current list and updates/adds from the file. '
-          'Replace wipes your list first.',
-          style: const TextStyle(color: AppColors.textDim, fontSize: 13),
+          'The file holds ${titleCount(count)}.\n\n'
+          'Merge keeps what you have and updates titles it recognises. '
+          'Replace throws away your current shelf first.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppColors.textFaint)),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'replace'),
-            child: const Text('Replace',
-                style: TextStyle(color: AppColors.danger)),
+            style: TextButton.styleFrom(foregroundColor: t.danger),
+            child: const Text('Replace'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, 'merge'),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
             child: const Text('Merge'),
           ),
         ],
       ),
     );
-    if (mode == null || !context.mounted) return;
-
-    final added =
-        await state.importEntries(entries, replace: mode == 'replace');
-    if (!context.mounted) return;
-    Navigator.of(context).pop(); // close the settings sheet
-    _snack(
-        context,
-        mode == 'replace'
-            ? 'Imported ${entries.length} entries (list replaced)'
-            : 'Merged: $added new, ${entries.length - added} updated');
   }
 
-  Widget _row(BuildContext context,
-      {required IconData icon,
-      required String title,
-      required String subtitle,
-      Color iconColor = AppColors.accent,
-      required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: AppColors.field,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-            child: Row(
-              children: [
-                Icon(icon, size: 19, color: iconColor),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title,
-                          style: const TextStyle(
-                              color: AppColors.text,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14)),
-                      const SizedBox(height: 2),
-                      Text(subtitle,
-                          style: const TextStyle(
-                              color: AppColors.textFaint, fontSize: 12)),
-                    ],
-                  ),
+  Widget _row({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String id,
+    required VoidCallback onTap,
+  }) {
+    final t = context.tk;
+    final running = _busy == id;
+    final locked = _busy != null;
+    return Semantics(
+      button: true,
+      enabled: !locked,
+      label: '$title. $subtitle',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: locked ? null : onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 60),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: t.rule)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 19, color: locked ? t.inkGhost : t.inkMuted),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: Type.label.copyWith(
+                            fontSize: 14,
+                            color: locked ? t.inkFaint : t.ink)),
+                    const SizedBox(height: 3),
+                    Text(running ? 'Working…' : subtitle,
+                        style: Type.bodySm.copyWith(color: t.inkFaint)),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: running
+                    ? CircularProgressIndicator(
+                        strokeWidth: 2, color: t.inkMuted)
+                    : Icon(Icons.chevron_right_rounded,
+                        size: 18, color: locked ? t.inkGhost : t.inkFaint),
+              ),
+            ],
           ),
         ),
       ),
@@ -162,77 +196,48 @@ class _SettingsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tk;
     final count = state.entries.length;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 44),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 18),
-              decoration: BoxDecoration(
-                  color: AppColors.fieldBorder,
-                  borderRadius: BorderRadius.circular(99)),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return ConstrainedBox(
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+      child: SheetScaffold(
+        title: 'Settings',
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Settings',
-                  style: TextStyle(
-                      color: AppColors.text,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800)),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close,
-                    size: 18, color: AppColors.textDim),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: SectionLabel('Your data'),
+              ),
+              _row(
+                icon: Icons.file_download_outlined,
+                title: 'Export a backup',
+                subtitle: 'Write your shelf to a JSON file',
+                id: 'export',
+                onTap: _export,
+              ),
+              _row(
+                icon: Icons.file_upload_outlined,
+                title: 'Import a backup',
+                subtitle: 'Read a JSON file back in',
+                id: 'import',
+                onTap: _import,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                child: Text(
+                  '${titleCount(count)} · '
+                  '${groupDigits(state.totalChaptersRead)} chapters, kept on '
+                  'this phone only.',
+                  style: Type.meta.copyWith(color: t.inkFaint, height: 1.5),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const Text('DATA MANAGEMENT',
-              style: TextStyle(
-                  color: AppColors.textGhost,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.7)),
-          const SizedBox(height: 12),
-          _row(
-            context,
-            icon: Icons.file_download_outlined,
-            title: 'Export data',
-            subtitle: 'Save your list as a JSON backup file',
-            onTap: () => _export(context),
-          ),
-          _row(
-            context,
-            icon: Icons.file_upload_outlined,
-            title: 'Import data',
-            subtitle: 'Load a JSON backup file',
-            onTap: () => _import(context),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppColors.accent.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                  color: AppColors.accent.withValues(alpha: 0.18)),
-            ),
-            child: Text(
-              '📚 $count ${count == 1 ? 'entry' : 'entries'} in your list',
-              style: const TextStyle(
-                  color: AppColors.accentSoft, fontSize: 12),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

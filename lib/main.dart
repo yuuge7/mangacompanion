@@ -9,10 +9,8 @@ import 'theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final store = await MangaStore.open();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    systemNavigationBarColor: AppColors.bg,
-  ));
+  // The shelf paints its own system bars per theme; see HomeScreen.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(MangaCompanionApp(state: AppState(store)));
 }
 
@@ -25,7 +23,9 @@ class MangaCompanionApp extends StatelessWidget {
     return MaterialApp(
       title: 'Manga Companion',
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
       home: HomeScreen(state: state),
     );
   }

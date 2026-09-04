@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../models/manga_entry.dart';
 import '../theme.dart';
+import '../widgets/sheet.dart';
 
-/// Bottom sheet for adding or editing an entry. Returns the entry on save,
+/// Bottom sheet for adding or editing a title. Returns the entry on save,
 /// null on dismiss.
 Future<MangaEntry?> showEditSheet(BuildContext context,
     {MangaEntry? initial}) {
@@ -58,7 +59,7 @@ class _EditSheetState extends State<_EditSheet> {
   void _save() {
     final title = _title.text.trim();
     if (title.isEmpty) {
-      setState(() => _error = 'Title is required');
+      setState(() => _error = 'Give the title a name so you can find it.');
       return;
     }
     final entry = widget.initial?.copy() ?? MangaEntry.blank();
@@ -72,173 +73,168 @@ class _EditSheetState extends State<_EditSheet> {
     Navigator.of(context).pop(entry);
   }
 
-  Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text.toUpperCase(),
-            style: const TextStyle(
-                color: AppColors.textDim,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.6)),
-      );
+  Widget _field({
+    required String label,
+    required TextEditingController controller,
+    String? hint,
+    TextInputType? keyboardType,
+    bool numeric = false,
+    bool autofocus = false,
+    TextCapitalization capitalization = TextCapitalization.none,
+    String? errorText,
+    ValueChanged<String>? onChanged,
+  }) {
+    final t = context.tk;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FieldLabel(label),
+        TextField(
+          controller: controller,
+          autofocus: autofocus,
+          keyboardType: keyboardType,
+          textCapitalization: capitalization,
+          onChanged: onChanged,
+          style: (numeric ? Type.numberSm.copyWith(fontSize: 15) : Type.body)
+              .copyWith(color: t.ink),
+          decoration: InputDecoration(hintText: hint, errorText: errorText),
+        ),
+      ],
+    );
+  }
+
+  /// Segmented status control. Replaces the stock chips: square-ish, ruled,
+  /// and the selected one is filled with ink rather than tinted with accent.
+  Widget _statusPicker() {
+    final t = context.tk;
+    return Row(
+      children: [
+        for (final (i, (id, label)) in const [
+          ('reading', 'Reading'),
+          ('read', 'Read'),
+          ('dropped', 'Dropped'),
+        ].indexed)
+          Expanded(
+            child: Semantics(
+              button: true,
+              selected: _status == id,
+              label: label,
+              excludeSemantics: true,
+              child: InkWell(
+                onTap: () => setState(() => _status = id),
+                child: Container(
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _status == id ? t.raised : Colors.transparent,
+                    border: Border(
+                      top: BorderSide(color: t.rule),
+                      // Selection is marked the same way the status rail
+                      // marks it: an ink underline, not a filled block.
+                      bottom: BorderSide(
+                        color: _status == id ? t.ink : t.rule,
+                        width: _status == id ? 2 : 1,
+                      ),
+                      left: BorderSide(color: t.rule),
+                      right:
+                          i == 2 ? BorderSide(color: t.rule) : BorderSide.none,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    style: Type.label.copyWith(
+                      color: _status == id ? t.ink : t.inkFaint,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final insets = MediaQuery.of(context).viewInsets;
+    final insets = MediaQuery.viewInsetsOf(context);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.9;
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 18),
-                decoration: BoxDecoration(
-                    color: AppColors.fieldBorder,
-                    borderRadius: BorderRadius.circular(99)),
-              ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SheetScaffold(
+          title: isEdit ? 'Edit title' : 'Add a title',
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(isEdit ? 'Edit Entry' : 'Add Entry',
-                    style: const TextStyle(
-                        color: AppColors.text,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800)),
-                IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close,
-                      size: 18, color: AppColors.textDim),
+                _field(
+                  label: 'Title',
+                  controller: _title,
+                  hint: 'Berserk',
+                  autofocus: !isEdit,
+                  capitalization: TextCapitalization.words,
+                  errorText: _error,
+                  onChanged: (_) {
+                    if (_error != null) setState(() => _error = null);
+                  },
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _label('Title *'),
-            TextField(
-              controller: _title,
-              autofocus: !isEdit,
-              textCapitalization: TextCapitalization.words,
-              style: const TextStyle(color: AppColors.text, fontSize: 14),
-              decoration: const InputDecoration(hintText: 'e.g. Berserk'),
-              onChanged: (_) {
-                if (_error != null) setState(() => _error = null);
-              },
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 5),
-                child: Text(_error!,
-                    style: const TextStyle(
-                        color: AppColors.danger, fontSize: 12)),
-              ),
-            const SizedBox(height: 14),
-            _label('Cover Image URL'),
-            TextField(
-              controller: _coverUrl,
-              keyboardType: TextInputType.url,
-              style: const TextStyle(color: AppColors.text, fontSize: 14),
-              decoration: const InputDecoration(hintText: 'https://…'),
-            ),
-            const SizedBox(height: 14),
-            _label('Read URL'),
-            TextField(
-              controller: _readUrl,
-              keyboardType: TextInputType.url,
-              style: const TextStyle(color: AppColors.text, fontSize: 14),
-              decoration:
-                  const InputDecoration(hintText: 'Link to reading site'),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _label('Current Ch.'),
-                      TextField(
+                const SizedBox(height: 18),
+                _field(
+                  label: 'Where you read it',
+                  controller: _readUrl,
+                  hint: 'https://…',
+                  keyboardType: TextInputType.url,
+                ),
+                const SizedBox(height: 18),
+                _field(
+                  label: 'Cover image link',
+                  controller: _coverUrl,
+                  hint: 'https://…',
+                  keyboardType: TextInputType.url,
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _field(
+                        label: 'Chapter you are on',
                         controller: _currentCh,
+                        hint: '0',
+                        numeric: true,
                         keyboardType: TextInputType.number,
-                        style: const TextStyle(
-                            color: AppColors.text, fontSize: 14),
-                        decoration: const InputDecoration(hintText: '0'),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _label('Total Chs.'),
-                      TextField(
-                        controller: _totalCh,
-                        keyboardType: TextInputType.number,
-                        style: const TextStyle(
-                            color: AppColors.text, fontSize: 14),
-                        decoration: const InputDecoration(hintText: '?'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _label('Status'),
-            Row(
-              children: [
-                for (final (id, label) in [
-                  ('reading', '📖 Reading'),
-                  ('read', '✅ Read'),
-                  ('dropped', '🚫 Dropped'),
-                ])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(label),
-                      selected: _status == id,
-                      showCheckmark: false,
-                      onSelected: (_) => setState(() => _status = id),
-                      labelStyle: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _status == id
-                              ? AppColors.accentSoft
-                              : AppColors.textFaint),
-                      selectedColor: AppColors.accent.withValues(alpha: 0.14),
-                      backgroundColor: AppColors.field,
-                      side: BorderSide(
-                          color: _status == id
-                              ? AppColors.accent.withValues(alpha: 0.4)
-                              : Colors.transparent),
                     ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: _field(
+                        label: 'Chapters in total',
+                        controller: _totalCh,
+                        hint: 'leave blank if ongoing',
+                        numeric: true,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                const SectionLabel('Shelf'),
+                const SizedBox(height: 8),
+                _statusPicker(),
+                const SizedBox(height: 26),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _save,
+                    child: Text(isEdit ? 'Save changes' : 'Add to shelf'),
                   ),
+                ),
               ],
             ),
-            const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _save,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                child: Text(isEdit ? 'Save Changes' : '+ Add Entry',
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w700)),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

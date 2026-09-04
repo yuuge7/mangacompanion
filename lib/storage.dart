@@ -11,20 +11,30 @@ class MangaStore {
   final SharedPreferences _prefs;
   MangaStore(this._prefs);
 
+  /// True when the saved blob existed but could not be read back. The UI
+  /// shows a recovery state for this instead of pretending the shelf is
+  /// empty.
+  bool loadFailed = false;
+
   static Future<MangaStore> open() async =>
       MangaStore(await SharedPreferences.getInstance());
 
   List<MangaEntry> load() {
+    loadFailed = false;
     final raw = _prefs.getString(_key);
     if (raw == null) return [];
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return [];
+      if (decoded is! List) {
+        loadFailed = true;
+        return [];
+      }
       return decoded
           .whereType<Map<String, dynamic>>()
           .map(MangaEntry.fromJson)
           .toList();
     } catch (_) {
+      loadFailed = true;
       return [];
     }
   }

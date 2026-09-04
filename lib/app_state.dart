@@ -12,6 +12,13 @@ class AppState extends ChangeNotifier {
 
   AppState(this._store) : entries = _store.load();
 
+  /// The saved shelf was there but unreadable. Drives the recovery state.
+  bool get loadFailed => _store.loadFailed;
+
+  /// Chapters counted across a given slice of the shelf.
+  int chaptersIn(List<MangaEntry> list) =>
+      list.fold(0, (sum, e) => sum + e.currentChapter);
+
   Future<void> _persist() async {
     await _store.save(entries);
     notifyListeners();

@@ -62,6 +62,33 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Self-hosted so the app stays fully offline. Role per face: serif names
+  # things (titles), sans explains things (body), mono counts things
+  # (chapters, dates, tallies) and gives us tabular figures.
+  fonts:
+    - family: PlexSerif
+      fonts:
+        - asset: assets/fonts/IBMPlexSerif-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBMPlexSerif-SemiBold.ttf
+          weight: 600
+    - family: PlexSans
+      fonts:
+        - asset: assets/fonts/IBMPlexSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBMPlexSans-SemiBold.ttf
+          weight: 600
+    - family: PlexMono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBMPlexMono-SemiBold.ttf
+          weight: 600
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
