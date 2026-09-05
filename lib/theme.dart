@@ -7,8 +7,8 @@ import 'package:flutter/material.dart';
 /// rules, never by elevation or shadow.
 ///
 /// The accent (brass) has exactly one meaning: where you are in a title.
-/// It is allowed on the current-chapter numeral and on the bookmark tick of
-/// a spine. Nothing else -- not navigation, not headings, not buttons.
+/// It is allowed on the current-chapter numeral and nowhere else -- not on
+/// navigation, headings, buttons, or the cover art.
 @immutable
 class AppTokens extends ThemeExtension<AppTokens> {
   // Ground and surfaces.
@@ -27,7 +27,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   // Meaningful colour.
   final Color accent; // reading position, only
-  final Color accentQuiet; // the unread part of a bookmark tick
+  final Color accentQuiet; // accent at low emphasis, e.g. text selection
   final Color onAccent;
   final Color done;
   final Color danger;
@@ -36,11 +36,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// themes it reads as raised, because the app's primary action must never
   /// be the least visible thing on the row.
   final Color raised;
-
-  /// Laid over the part of a spine you have not read yet. Tuned per theme:
-  /// a light veil on paper washes cover art out far faster than a dark one
-  /// does on ink, so it is weaker there.
-  final Color spineVeil;
 
   const AppTokens({
     required this.ground,
@@ -58,7 +53,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.onAccent,
     required this.done,
     required this.danger,
-    required this.spineVeil,
     required this.raised,
   });
 
@@ -78,7 +72,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
     onAccent: Color(0xFF16232A),
     done: Color(0xFF6FAE95),
     danger: Color(0xFFD4736A),
-    spineVeil: Color(0x9E101A20),
     raised: Color(0xFF2A414C),
   );
 
@@ -98,7 +91,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
     onAccent: Color(0xFFFDFBF6),
     done: Color(0xFF276754),
     danger: Color(0xFFA33A31),
-    spineVeil: Color(0x8CE5EAE8),
     raised: Color(0xFFFAFCFB),
   );
 
@@ -133,7 +125,8 @@ abstract class R {
   static const sheet = Radius.circular(12);
 }
 
-/// Motion. Two things animate in this app and both use these.
+/// Motion. Two things animate in this app: the chapter numeral when it
+/// changes, and a cover fading in once it loads.
 abstract class Motion {
   static const micro = Duration(milliseconds: 140);
   static const state = Duration(milliseconds: 220);

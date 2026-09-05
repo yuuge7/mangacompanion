@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#F97316</color>
+    <!-- Matches AppTokens.light.ground so the launch window does not flash a
+         colour the app never uses. -->
+    <color name="ground">#E5EAE8</color>
 </resources>

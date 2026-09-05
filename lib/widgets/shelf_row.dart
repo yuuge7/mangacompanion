@@ -14,7 +14,10 @@ import 'star_rating.dart';
 /// separates rows is a hairline, not a gap — so scrolling reads as a
 /// continuous shelf rather than a stack of cards.
 class ShelfRow extends StatelessWidget {
-  static const spineWidth = 46.0;
+  // Sized to a book: roughly 2:3 against [minHeight], so BoxFit.cover has
+  // almost nothing to crop. Narrower than this and a cover is reduced to an
+  // unreadable centre strip.
+  static const spineWidth = 66.0;
   static const stepperWidth = 56.0;
   // 5:4 split of this leaves the smaller stepper block at 44dp.
   static const minHeight = 100.0;
@@ -107,17 +110,19 @@ class ShelfRow extends StatelessWidget {
     );
   }
 
+  /// The cover, and nothing else. Reading position is stated as a number
+  /// beside it, so marking it on the artwork as well only defaced the art.
   Widget _spine(BuildContext context) {
-    final t = context.tk;
-    final hasTotal = item.totalChapters != null && item.totalChapters! > 0;
-
     final art = item.coverUrl.isEmpty
         ? _blankSpine(context)
         : CachedNetworkImage(
             imageUrl: item.coverUrl,
             fit: BoxFit.cover,
             fadeInDuration: Motion.of(context, Motion.state),
-            placeholder: (_, _) => ColoredBox(color: t.groundSunken),
+            // A cover this size leaves a conspicuous hole while it loads, so
+            // fall back to the dyed spine in the meantime rather than a flat
+            // block. Failure lands on the same thing.
+            placeholder: (_, _) => _blankSpine(context),
             errorWidget: (_, _, _) => _blankSpine(context),
           );
 
@@ -128,33 +133,7 @@ class ShelfRow extends StatelessWidget {
           : 'Open ${item.title} where you read it',
       child: GestureDetector(
         onTap: item.readUrl.isEmpty ? null : () => _openReadUrl(context),
-        child: SizedBox(
-          width: spineWidth,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              art,
-              // Painted, not laid out: the row has to be able to report an
-              // intrinsic height, and Positioned children are excluded from
-              // that measurement.
-              if (hasTotal)
-                Positioned.fill(
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(end: item.progress),
-                    duration: Motion.of(context, Motion.state),
-                    curve: Motion.curve,
-                    builder: (_, progress, _) => CustomPaint(
-                      painter: _SpinePainter(
-                        progress: progress,
-                        unread: t.spineVeil,
-                        bookmark: t.accent,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        child: SizedBox(width: spineWidth, child: art),
       ),
     );
   }
@@ -467,39 +446,4 @@ class ShelfRow extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Dims the part of a spine you have not reached, and draws the bookmark
-/// across it at your exact position.
-class _SpinePainter extends CustomPainter {
-  final double progress;
-  final Color unread;
-  final Color bookmark;
-
-  const _SpinePainter({
-    required this.progress,
-    required this.unread,
-    required this.bookmark,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final y = ((1 - progress) * size.height).clamp(0.0, size.height);
-    if (y > 0) {
-      canvas.drawRect(
-        Rect.fromLTWH(0, 0, size.width, y),
-        Paint()..color = unread,
-      );
-    }
-    canvas.drawRect(
-      Rect.fromLTWH(0, (y - 1).clamp(0.0, size.height - 2), size.width, 2),
-      Paint()..color = bookmark,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_SpinePainter old) =>
-      old.progress != progress ||
-      old.unread != unread ||
-      old.bookmark != bookmark;
 }
