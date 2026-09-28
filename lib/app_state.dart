@@ -36,8 +36,9 @@ class AppState extends ChangeNotifier {
         .toList();
     switch (sortMode) {
       case SortMode.recent:
-        // Same as the site: reading tab by activity, others by date added.
-        if (status == 'reading') {
+        // Reading by activity, read by when it was finished (the status
+        // change stamps lastUpdated), dropped by date added.
+        if (status != 'dropped') {
           list.sort((a, b) => b.lastUpdated.compareTo(a.lastUpdated));
         } else {
           list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
