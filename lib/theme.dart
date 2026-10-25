@@ -134,7 +134,9 @@ abstract class Motion {
 
   /// Honours the platform "remove animations" accessibility setting.
   static Duration of(BuildContext context, Duration d) =>
-      MediaQuery.maybeDisableAnimationsOf(context) == true ? Duration.zero : d;
+      (MediaQuery.maybeDisableAnimationsOf(context) ?? false)
+          ? Duration.zero
+          : d;
 }
 
 abstract class Faces {
@@ -335,6 +337,17 @@ ThemeData buildTheme(Brightness brightness) {
         textStyle: Type.label,
         elevation: 0,
         minimumSize: const Size(64, 48),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(R.control),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: t.ink,
+        textStyle: Type.label,
+        minimumSize: const Size(64, 48),
+        side: BorderSide(color: t.ruleStrong),
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(R.control),
         ),

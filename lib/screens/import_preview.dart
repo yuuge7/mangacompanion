@@ -33,8 +33,8 @@ class _ImportPreview extends StatelessWidget {
     required this.plan,
   });
 
-  String _chapterChange(MangaEntry next) {
-    final mine = state.entries.where((e) => e.id == next.id).firstOrNull;
+  String _chapterChange(MangaEntry next, Map<String, MangaEntry> shelf) {
+    final mine = shelf[next.id];
     if (mine == null || mine.currentChapter == next.currentChapter) {
       return 'ch ${next.currentChapter}';
     }
@@ -45,6 +45,7 @@ class _ImportPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tk;
     final shelf = state.entries.length;
+    final byId = {for (final e in state.entries) e.id: e};
     return AlertDialog(
       title: Text('Import from ${backup.source.label}?'),
       content: SizedBox(
@@ -70,7 +71,8 @@ class _ImportPreview extends StatelessWidget {
               _Group(
                 label: 'Updated',
                 items: [
-                  for (final e in plan.updated) (e.title, _chapterChange(e)),
+                  for (final e in plan.updated)
+                    (e.title, _chapterChange(e, byId)),
                 ],
               ),
               _Group(

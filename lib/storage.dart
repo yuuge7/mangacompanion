@@ -39,6 +39,13 @@ class MangaStore {
     }
   }
 
+  /// Re-reads from disk, dropping the in-memory cache. Needed after the
+  /// home screen widget writes to the same store.
+  Future<List<MangaEntry>> reload() async {
+    await _prefs.reload();
+    return load();
+  }
+
   Future<void> save(List<MangaEntry> entries) async {
     await _prefs.setString(
         _key, jsonEncode(entries.map((e) => e.toJson()).toList()));

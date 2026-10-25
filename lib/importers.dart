@@ -117,6 +117,7 @@ List<MangaEntry>? parseMalXml(String xml) {
     final total = _toInt(_xmlField(block, 'manga_chapters'));
     final read = _toInt(_xmlField(block, 'my_read_chapters'));
     final score = _toInt(_xmlField(block, 'my_score'));
+    final rereads = _toInt(_xmlField(block, 'my_times_read'));
     final status = _malStatus(_xmlField(block, 'my_status'));
     final started = _parseDate(_xmlField(block, 'my_start_date'));
     final finished = _parseDate(_xmlField(block, 'my_finish_date'));
@@ -129,29 +130,32 @@ List<MangaEntry>? parseMalXml(String xml) {
       totalChapters: total > 0 ? total : null,
       status: status,
       rating: (score / 2).round().clamp(0, 5),
+      rereads: rereads < 0 ? 0 : rereads,
       addedAt: started ?? now,
+      startedAt: started,
+      finishedAt: status == ShelfStatus.read ? finished : null,
       // The export has no "last changed" time. A finish date is the best
       // stand-in for finished titles; anything else counts as just now.
-      lastUpdated: status != 'reading' && finished != null ? finished : now,
+      lastUpdated: _isClosed(status) && finished != null ? finished : now,
     ));
   }
   return out;
 }
 
 /// MAL writes statuses as words, some third-party exports as numbers.
-/// The shelf has no "on hold" or "plan to read", so those land in reading.
-String _malStatus(String raw) {
-  switch (raw.trim().toLowerCase()) {
-    case 'completed':
-    case '2':
-      return 'read';
-    case 'dropped':
-    case '4':
-      return 'dropped';
-    default:
-      return 'reading';
-  }
+ShelfStatus _malStatus(String raw) {
+  return switch (raw.trim().toLowerCase()) {
+    'completed' || '2' => ShelfStatus.read,
+    'on-hold' || 'on hold' || '3' => ShelfStatus.onHold,
+    'dropped' || '4' => ShelfStatus.dropped,
+    'plan to read' || '6' => ShelfStatus.planned,
+    _ => ShelfStatus.reading,
+  };
 }
+
+/// Finished or given up: the finish date is the last time it changed.
+bool _isClosed(ShelfStatus s) =>
+    s == ShelfStatus.read || s == ShelfStatus.dropped;
 
 /// Text of `<name>…</name>` inside [block], with CDATA unwrapped and
 /// entities decoded. Empty when missing.
@@ -219,14 +223,16 @@ List<MangaEntry>? parseAnimePlanetJson(String raw) {
     // "Won't read" is a list of things the user chose to never start.
     if (apStatus == "won't read") continue;
     final status = switch (apStatus) {
-      'read' => 'read',
-      'dropped' => 'dropped',
-      // reading, stalled, want to read: the shelf has no separate
-      // "on hold" or "plan to read", so they go to reading.
-      _ => 'reading',
+      'read' => ShelfStatus.read,
+      'dropped' => ShelfStatus.dropped,
+      'stalled' => ShelfStatus.onHold,
+      'want to read' => ShelfStatus.planned,
+      _ => ShelfStatus.reading,
     };
 
     final ch = _toInt(e['ch']);
+    // "times" counts every read-through, so the first is not a re-read.
+    final times = _toInt(e['times']);
     final started = _parseDate(e['started']);
     final completed = _parseDate(e['completed']);
     out.add(MangaEntry(
@@ -235,12 +241,15 @@ List<MangaEntry>? parseAnimePlanetJson(String raw) {
       currentChapter: ch < 0 ? 0 : ch,
       // No series length in the export; for a finished title the chapters
       // read is the best guess.
-      totalChapters: status == 'read' && ch > 0 ? ch : null,
+      totalChapters: status == ShelfStatus.read && ch > 0 ? ch : null,
       status: status,
       // Anime-Planet rates 0–5 in half stars.
       rating: _toDouble(e['rating']).round().clamp(0, 5),
+      rereads: times > 1 ? times - 1 : 0,
       addedAt: started ?? now,
-      lastUpdated: status != 'reading' && completed != null ? completed : now,
+      startedAt: started,
+      finishedAt: status == ShelfStatus.read ? completed : null,
+      lastUpdated: _isClosed(status) && completed != null ? completed : now,
     ));
   }
   return out;
@@ -292,6 +301,8 @@ MangaEntry? _mihonManga(_Proto r) {
   var trackedRead = 0.0;
   var trackedTotal = 0;
   var trackingUrl = '';
+  var started = 0;
+  var finished = 0;
 
   while (!r.done) {
     final (field, wire) = r.tag();
@@ -320,6 +331,10 @@ MangaEntry? _mihonManga(_Proto r) {
         if (trackingUrl.isEmpty && t.url.startsWith('http')) {
           trackingUrl = t.url;
         }
+        if (t.started > 0 && (started == 0 || t.started < started)) {
+          started = t.started;
+        }
+        if (t.finished > finished) finished = t.finished;
       case (100, 0):
         favorite = r.varint() != 0;
       case (104, 2):
@@ -350,6 +365,7 @@ MangaEntry? _mihonManga(_Proto r) {
   }
 
   final added = _asMs(dateAdded) ?? _now();
+  final done = total != null && current >= total;
   return MangaEntry(
     id: MangaEntry.newId(),
     title: title,
@@ -359,8 +375,10 @@ MangaEntry? _mihonManga(_Proto r) {
     readUrl: url.startsWith('http') ? url : trackingUrl,
     currentChapter: current,
     totalChapters: total,
-    status: total != null && current >= total ? 'read' : 'reading',
+    status: done ? ShelfStatus.read : ShelfStatus.reading,
     addedAt: added,
+    startedAt: _asMs(started),
+    finishedAt: done ? _asMs(finished) : null,
     lastUpdated: lastRead > 0 ? lastRead : (_asMs(modified) ?? added),
   );
 }
@@ -388,10 +406,13 @@ int? _asMs(int v) {
   return (number: number, read: read);
 }
 
-({double lastRead, int total, String url}) _mihonTracking(_Proto r) {
+({double lastRead, int total, String url, int started, int finished})
+    _mihonTracking(_Proto r) {
   var lastRead = 0.0;
   var total = 0;
   var url = '';
+  var started = 0;
+  var finished = 0;
   while (!r.done) {
     final (field, wire) = r.tag();
     switch ((field, wire)) {
@@ -401,11 +422,21 @@ int? _asMs(int v) {
         lastRead = r.float32();
       case (7, 0):
         total = r.varint();
+      case (10, 0):
+        started = r.varint();
+      case (11, 0):
+        finished = r.varint();
       default:
         r.skip(wire);
     }
   }
-  return (lastRead: lastRead, total: total, url: url);
+  return (
+    lastRead: lastRead,
+    total: total,
+    url: url,
+    started: started,
+    finished: finished,
+  );
 }
 
 int _mihonHistory(_Proto r) {

@@ -4,4 +4,14 @@
     <!-- Matches AppTokens.light.ground so the launch window does not flash a
          colour the app never uses. -->
     <color name="ground">#E5EAE8</color>
+
+    <!-- Home screen widget, from AppTokens.light. Brass (accent) only on the
+         chapter numeral, as in the app. -->
+    <color name="widget_ground">#F2F5F3</color>
+    <color name="widget_rule">#C3CFCB</color>
+    <color name="widget_raised">#FAFCFB</color>
+    <color name="widget_ink">#14242B</color>
+    <color name="widget_ink_faint">#56696F</color>
+    <color name="widget_accent">#7F5709</color>
+    <color name="widget_done">#276754</color>
 </resources>

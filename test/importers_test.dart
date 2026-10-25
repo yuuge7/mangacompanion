@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:manga_companion/importers.dart';
+import 'package:manga_companion/models/manga_entry.dart';
 
 /// Tiny protobuf writer, the mirror of the reader under test.
 class Pb {
@@ -117,7 +118,7 @@ void main() {
       final berserk = parsed.entries[0];
       expect(berserk.currentChapter, 2);
       expect(berserk.totalChapters, isNull);
-      expect(berserk.status, 'reading');
+      expect(berserk.status, ShelfStatus.reading);
       expect(berserk.coverUrl, 'https://x/berserk.jpg');
       // Relative source link swapped for the tracker page.
       expect(berserk.readUrl, 'https://anilist.co/manga/30002');
@@ -127,7 +128,7 @@ void main() {
       final monster = parsed.entries[1];
       expect(monster.currentChapter, 10);
       expect(monster.totalChapters, 10);
-      expect(monster.status, 'read');
+      expect(monster.status, ShelfStatus.read);
       expect(monster.lastUpdated, 1710000000000);
     });
 
@@ -159,7 +160,17 @@ void main() {
     <my_start_date>0000-00-00</my_start_date>
     <my_finish_date>2021-05-01</my_finish_date>
     <my_score>10</my_score>
+    <my_times_read>2</my_times_read>
     <my_status>Completed</my_status>
+  </manga>
+  <manga>
+    <manga_title>Paused</manga_title>
+    <my_read_chapters>12</my_read_chapters>
+    <my_status>On-Hold</my_status>
+  </manga>
+  <manga>
+    <manga_title>Someday</manga_title>
+    <my_status>Plan to Read</my_status>
   </manga>
   <manga>
     <manga_mangadb_id>3</manga_mangadb_id>
@@ -174,29 +185,33 @@ void main() {
     test('reads a manga list export', () {
       final parsed = parseBackupFile(bytesOf(xml))!;
       expect(parsed.source, BackupSource.myAnimeList);
-      final [berserk, monster, dropped] = parsed.entries;
+      final [berserk, monster, paused, someday, dropped] = parsed.entries;
 
       expect(berserk.title, 'Berserk');
       expect(berserk.currentChapter, 364);
       expect(berserk.totalChapters, isNull);
       expect(berserk.rating, 5);
       expect(berserk.readUrl, 'https://myanimelist.net/manga/2');
-      expect(berserk.addedAt, DateTime(2019, 3, 1).millisecondsSinceEpoch);
+      expect(berserk.addedAt, DateTime(2019, 3).millisecondsSinceEpoch);
 
       expect(monster.title, 'Monster & Friends');
-      expect(monster.status, 'read');
+      expect(monster.status, ShelfStatus.read);
+      expect(monster.rereads, 2);
+      expect(monster.finishedAt, DateTime(2021, 5).millisecondsSinceEpoch);
+      expect(paused.status, ShelfStatus.onHold);
+      expect(someday.status, ShelfStatus.planned);
       expect(monster.totalChapters, 162);
       expect(monster.lastUpdated,
-          DateTime(2021, 5, 1).millisecondsSinceEpoch);
+          DateTime(2021, 5).millisecondsSinceEpoch);
 
-      expect(dropped.status, 'dropped');
+      expect(dropped.status, ShelfStatus.dropped);
       expect(dropped.rating, 0);
     });
 
     test('works gzipped, as MAL serves it', () {
       final parsed =
           parseBackupFile(Uint8List.fromList(gzip.encode(utf8.encode(xml))))!;
-      expect(parsed.entries.length, 3);
+      expect(parsed.entries.length, 5);
     });
 
     test('an anime export has no manga', () {
@@ -234,12 +249,13 @@ void main() {
       expect(berserk.rating, 5);
       expect(berserk.addedAt, DateTime(2020, 1, 15).millisecondsSinceEpoch);
 
-      expect(monster.status, 'read');
+      expect(monster.status, ShelfStatus.read);
       expect(monster.totalChapters, 162);
+      expect(monster.rereads, 0); // read once
       expect(monster.lastUpdated,
-          DateTime(2021, 5, 1).millisecondsSinceEpoch);
+          DateTime(2021, 5).millisecondsSinceEpoch);
 
-      expect(later.status, 'reading');
+      expect(later.status, ShelfStatus.planned);
     });
 
     test('an anime export has no manga', () {

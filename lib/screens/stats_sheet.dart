@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../format.dart';
+import '../models/manga_entry.dart';
+import '../stats.dart';
 import '../theme.dart';
 import '../widgets/sheet.dart';
 
@@ -55,8 +57,10 @@ class _StatsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tk;
     final avg = state.averageRating;
-    final rated =
-        state.entries.where((e) => e.status == 'read' && e.rating > 0).length;
+    final rated = state.entries
+        .where((e) => e.status == ShelfStatus.read && e.rating > 0)
+        .length;
+    final activity = readingStats(state.entries);
 
     return ConstrainedBox(
       constraints:
@@ -71,11 +75,10 @@ class _StatsSheet extends StatelessWidget {
             children: [
               const SectionLabel('By shelf'),
               const SizedBox(height: 4),
-              _line(context, 'Reading', '${state.countFor('reading')}'),
-              Divider(color: t.rule, height: 1),
-              _line(context, 'Read', '${state.countFor('read')}'),
-              Divider(color: t.rule, height: 1),
-              _line(context, 'Dropped', '${state.countFor('dropped')}'),
+              for (final (i, s) in ShelfStatus.values.indexed) ...[
+                if (i > 0) Divider(color: t.rule, height: 1),
+                _line(context, s.label, '${state.countFor(s)}'),
+              ],
               Container(
                 margin: const EdgeInsets.only(top: 4),
                 height: 1,
@@ -84,7 +87,38 @@ class _StatsSheet extends StatelessWidget {
               _line(context, 'Titles tracked', '${state.entries.length}',
                   total: true),
               const SizedBox(height: 22),
-              const SectionLabel('Reading'),
+              const SectionLabel('Activity'),
+              const SizedBox(height: 4),
+              if (activity.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  child: Text(
+                    'Log chapters with + or a swipe and your reading '
+                    'week, month and streaks show up here.',
+                    style: Type.bodySm.copyWith(color: t.inkFaint),
+                  ),
+                )
+              else ...[
+                _line(context, 'Chapters this week',
+                    groupDigits(activity.thisWeek)),
+                Divider(color: t.rule, height: 1),
+                _line(context, 'Chapters this month',
+                    groupDigits(activity.thisMonth)),
+                Divider(color: t.rule, height: 1),
+                _line(context, 'Chapters this year',
+                    groupDigits(activity.thisYear)),
+                Divider(color: t.rule, height: 1),
+                _line(context, 'Finished this year',
+                    titleCount(activity.finishedThisYear)),
+                Divider(color: t.rule, height: 1),
+                _line(context, 'Current streak',
+                    dayCount(activity.currentStreak)),
+                Divider(color: t.rule, height: 1),
+                _line(context, 'Longest streak',
+                    dayCount(activity.longestStreak)),
+              ],
+              const SizedBox(height: 22),
+              const SectionLabel('All time'),
               const SizedBox(height: 4),
               _line(context, 'Chapters read',
                   groupDigits(state.totalChaptersRead)),

@@ -1,23 +1,29 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
+import '../format.dart';
 import '../models/manga_entry.dart';
 import '../theme.dart';
 import '../widgets/sheet.dart';
 
 /// Bottom sheet for adding or editing a title. Returns the entry on save,
-/// null on dismiss.
-Future<MangaEntry?> showEditSheet(BuildContext context,
-    {MangaEntry? initial}) {
+/// null on dismiss. [state] is only read, to warn about duplicates.
+Future<MangaEntry?> showEditSheet(
+  BuildContext context, {
+  required AppState state,
+  MangaEntry? initial,
+}) {
   return showModalBottomSheet<MangaEntry>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _EditSheet(initial: initial),
+    builder: (_) => _EditSheet(state: state, initial: initial),
   );
 }
 
 class _EditSheet extends StatefulWidget {
+  final AppState state;
   final MangaEntry? initial;
-  const _EditSheet({this.initial});
+  const _EditSheet({required this.state, this.initial});
 
   @override
   State<_EditSheet> createState() => _EditSheetState();
@@ -29,7 +35,8 @@ class _EditSheetState extends State<_EditSheet> {
   late final TextEditingController _readUrl;
   late final TextEditingController _currentCh;
   late final TextEditingController _totalCh;
-  late String _status;
+  late final TextEditingController _rereads;
+  late ShelfStatus _status;
   String? _error;
 
   bool get isEdit => widget.initial != null;
@@ -45,16 +52,28 @@ class _EditSheetState extends State<_EditSheet> {
         text: e == null || e.currentChapter == 0 ? '' : '${e.currentChapter}');
     _totalCh = TextEditingController(
         text: e?.totalChapters == null ? '' : '${e!.totalChapters}');
-    _status = e?.status ?? 'reading';
+    _rereads = TextEditingController(
+        text: e == null || e.rereads == 0 ? '' : '${e.rereads}');
+    _status = e?.status ?? ShelfStatus.reading;
   }
 
   @override
   void dispose() {
-    for (final c in [_title, _coverUrl, _readUrl, _currentCh, _totalCh]) {
+    for (final c in [
+      _title,
+      _coverUrl,
+      _readUrl,
+      _currentCh,
+      _totalCh,
+      _rereads,
+    ]) {
       c.dispose();
     }
     super.dispose();
   }
+
+  MangaEntry? get _duplicate =>
+      widget.state.findDuplicate(_title.text, exceptId: widget.initial?.id);
 
   void _save() {
     final title = _title.text.trim();
@@ -62,14 +81,39 @@ class _EditSheetState extends State<_EditSheet> {
       setState(() => _error = 'Give the title a name so you can find it.');
       return;
     }
-    final entry = widget.initial?.copy() ?? MangaEntry.blank();
-    entry.title = title;
-    entry.coverUrl = _coverUrl.text.trim();
-    entry.readUrl = _readUrl.text.trim();
-    entry.currentChapter = int.tryParse(_currentCh.text.trim()) ?? 0;
-    entry.totalChapters = int.tryParse(_totalCh.text.trim());
-    entry.status = _status;
-    entry.lastUpdated = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final chapter = int.tryParse(_currentCh.text.trim()) ?? 0;
+    final total = int.tryParse(_totalCh.text.trim());
+    final rereads = int.tryParse(_rereads.text.trim()) ?? 0;
+
+    final initial = widget.initial;
+    final MangaEntry entry;
+    if (initial == null) {
+      // The chapter typed here was read before the app knew about it, so
+      // it is not logged as today's reading.
+      entry = MangaEntry.blank().copyWith(
+        title: title,
+        coverUrl: _coverUrl.text.trim(),
+        readUrl: _readUrl.text.trim(),
+        currentChapter: chapter,
+        totalChapters: total,
+        status: _status,
+        rereads: rereads,
+        finishedAt: _status == ShelfStatus.read ? now : null,
+      );
+    } else {
+      entry = initial
+          .copyWith(
+            title: title,
+            coverUrl: _coverUrl.text.trim(),
+            readUrl: _readUrl.text.trim(),
+            totalChapters: total,
+            rereads: rereads,
+          )
+          .recordProgress(chapter, now: now)
+          .moveTo(_status, now: now)
+          .copyWith(lastUpdated: now);
+    }
     Navigator.of(context).pop(entry);
   }
 
@@ -103,49 +147,40 @@ class _EditSheetState extends State<_EditSheet> {
     );
   }
 
-  /// Segmented status control. Replaces the stock chips: square-ish, ruled,
-  /// and the selected one is filled with ink rather than tinted with accent.
+  /// Five shelves do not fit one row of segments on a phone, so each is a
+  /// ruled tab that wraps. The chosen one is outlined in ink, not tinted
+  /// with the accent.
   Widget _statusPicker() {
     final t = context.tk;
-    return Row(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        for (final (i, (id, label)) in const [
-          ('reading', 'Reading'),
-          ('read', 'Read'),
-          ('dropped', 'Dropped'),
-        ].indexed)
-          Expanded(
-            child: Semantics(
-              button: true,
-              selected: _status == id,
-              label: label,
-              excludeSemantics: true,
-              child: InkWell(
-                onTap: () => setState(() => _status = id),
-                child: Container(
-                  height: 48,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: _status == id ? t.raised : Colors.transparent,
-                    border: Border(
-                      top: BorderSide(color: t.rule),
-                      // Selection is marked the same way the status rail
-                      // marks it: an ink underline, not a filled block.
-                      bottom: BorderSide(
-                        color: _status == id ? t.ink : t.rule,
-                        width: _status == id ? 2 : 1,
-                      ),
-                      left: BorderSide(color: t.rule),
-                      right:
-                          i == 2 ? BorderSide(color: t.rule) : BorderSide.none,
-                    ),
+        for (final s in ShelfStatus.values)
+          Semantics(
+            button: true,
+            selected: _status == s,
+            label: s.label,
+            excludeSemantics: true,
+            child: InkWell(
+              borderRadius: const BorderRadius.all(R.control),
+              onTap: () => setState(() => _status = s),
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _status == s ? t.raised : Colors.transparent,
+                  borderRadius: const BorderRadius.all(R.control),
+                  border: Border.all(
+                    color: _status == s ? t.ink : t.rule,
+                    width: _status == s ? 1.5 : 1,
                   ),
-                  child: Text(
-                    label,
-                    style: Type.label.copyWith(
-                      color: _status == id ? t.ink : t.inkFaint,
-                    ),
-                  ),
+                ),
+                child: Text(
+                  s.label,
+                  style: Type.label
+                      .copyWith(color: _status == s ? t.ink : t.inkFaint),
                 ),
               ),
             ),
@@ -154,10 +189,66 @@ class _EditSheetState extends State<_EditSheet> {
     );
   }
 
+  Widget _historyLine(String label, String value) {
+    final t = context.tk;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Expanded(
+            child:
+                Text(label, style: Type.bodySm.copyWith(color: t.inkMuted)),
+          ),
+          Text(value, style: Type.meta.copyWith(color: t.ink)),
+        ],
+      ),
+    );
+  }
+
+  /// Read-only record for an existing title: when it was started and
+  /// finished, and the last few logged steps.
+  Widget _history(MangaEntry e) {
+    final t = context.tk;
+    final recent = e.history.reversed.take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionLabel('History'),
+        const SizedBox(height: 4),
+        _historyLine('Added', shortDate(e.addedAt)),
+        _historyLine('Started', shortDate(e.startedAt)),
+        _historyLine('Finished', shortDate(e.finishedAt)),
+        const SizedBox(height: 6),
+        if (recent.isEmpty)
+          Text('Chapters you log from now on show up here.',
+              style: Type.bodySm.copyWith(color: t.inkFaint))
+        else
+          for (final ev in recent)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(shortDate(ev.at),
+                        style: Type.meta.copyWith(color: t.inkFaint)),
+                  ),
+                  Text('ch ${ev.from} → ${ev.to}',
+                      style: Type.meta.copyWith(color: t.ink)),
+                ],
+              ),
+            ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final t = context.tk;
     final insets = MediaQuery.viewInsetsOf(context);
     final maxHeight = MediaQuery.sizeOf(context).height * 0.9;
+    final dup = _duplicate;
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
       child: ConstrainedBox(
@@ -177,10 +268,31 @@ class _EditSheetState extends State<_EditSheet> {
                   autofocus: !isEdit,
                   capitalization: TextCapitalization.words,
                   errorText: _error,
-                  onChanged: (_) {
-                    if (_error != null) setState(() => _error = null);
-                  },
+                  onChanged: (_) => setState(() => _error = null),
                 ),
+                if (dup != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.warning_amber_rounded,
+                              size: 16, color: t.danger),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '"${dup.title}" is already on your '
+                              '${dup.status.label.toLowerCase()} shelf, at '
+                              'chapter ${dup.currentChapter}.',
+                              style: Type.bodySm.copyWith(color: t.danger),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 18),
                 _field(
                   label: 'Where you read it',
@@ -213,12 +325,20 @@ class _EditSheetState extends State<_EditSheet> {
                       child: _field(
                         label: 'Chapters in total',
                         controller: _totalCh,
-                        hint: 'leave blank if ongoing',
+                        hint: 'blank if ongoing',
                         numeric: true,
                         keyboardType: TextInputType.number,
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 18),
+                _field(
+                  label: 'Times re-read',
+                  controller: _rereads,
+                  hint: '0',
+                  numeric: true,
+                  keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 22),
                 const SectionLabel('Shelf'),
@@ -229,9 +349,18 @@ class _EditSheetState extends State<_EditSheet> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: _save,
-                    child: Text(isEdit ? 'Save changes' : 'Add to shelf'),
+                    child: Text(switch ((isEdit, dup != null)) {
+                      (false, false) => 'Add to shelf',
+                      (false, true) => 'Add anyway',
+                      (true, false) => 'Save changes',
+                      (true, true) => 'Save anyway',
+                    }),
                   ),
                 ),
+                if (widget.initial case final e?) ...[
+                  const SizedBox(height: 28),
+                  _history(e),
+                ],
               ],
             ),
           ),

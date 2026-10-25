@@ -18,8 +18,27 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(messenger, CHANNEL)
             .setMethodCallHandler { call, result -> onMethodCall(call, result) }
+
+        // Home screen widget: the app says when it saved, the widget says
+        // when it changed the shelf behind the app's back.
+        val widget = MethodChannel(messenger, WIDGET_CHANNEL)
+        widget.setMethodCallHandler { call, result ->
+            if (call.method == "refresh") {
+                ReadingWidget.refreshAll(applicationContext)
+                result.success(null)
+            } else {
+                result.notImplemented()
+            }
+        }
+        ShelfStore.onChanged = { widget.invokeMethod("shelfChanged", null) }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        ShelfStore.onChanged = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -100,6 +119,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "dev.ionel.manga_companion/export"
+        private const val WIDGET_CHANNEL = "dev.ionel.manga_companion/widget"
         private const val CREATE_DOCUMENT_REQUEST = 0x4A53
         private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
     }

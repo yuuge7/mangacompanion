@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">Reading</string>
+    <string name="widget_header">Reading</string>
+    <string name="widget_description">Titles you are reading. Tap + to log a chapter without opening the app.</string>
+    <string name="widget_empty">Nothing in progress. Tap to open Manga Companion.</string>
+</resources>

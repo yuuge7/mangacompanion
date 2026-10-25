@@ -40,7 +40,7 @@ void main() {
     expect(entries[0].currentChapter, 364);
     expect(entries[0].totalChapters, 380);
     expect(entries[1].totalChapters, isNull);
-    expect(entries[1].status, 'read');
+    expect(entries[1].status, ShelfStatus.read);
     expect(entries[1].rating, 5);
   });
 
@@ -59,6 +59,14 @@ void main() {
     expect(MangaStore.parseExport('garbage'), isNull);
   });
 
+  test('reads statuses this version does not know as reading', () {
+    final e = MangaStore.parseExport(
+        '[{"title":"X","status":"something-new"},'
+        '{"title":"Y","status":"on-hold"},{"title":"Z","status":"planned"}]')!;
+    expect(e.map((x) => x.status),
+        [ShelfStatus.reading, ShelfStatus.onHold, ShelfStatus.planned]);
+  });
+
   test('round-trips through export JSON unchanged', () {
     final e = MangaEntry(
       id: 'abc',
@@ -67,7 +75,9 @@ void main() {
       readUrl: 'https://x/read',
       currentChapter: 200,
       totalChapters: 220,
-      status: 'reading',
+      rereads: 1,
+      startedAt: 1,
+      history: const [ReadEvent(at: 2, from: 199, to: 200)],
       rating: 4,
       addedAt: 1,
       lastUpdated: 2,

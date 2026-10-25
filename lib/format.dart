@@ -29,6 +29,21 @@ String groupDigits(int n) {
   return out.toString();
 }
 
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// "9 Mar 2025", or an em dash for no date.
+String shortDate(int? ms) {
+  if (ms == null || ms <= 0) return '—';
+  final d = DateTime.fromMillisecondsSinceEpoch(ms);
+  return '${d.day} ${_months[d.month - 1]} ${d.year}';
+}
+
+/// "1 day" / "12 days".
+String dayCount(int n) => '${groupDigits(n)} ${n == 1 ? 'day' : 'days'}';
+
 /// "1 title" / "12 titles" — the app says "titles", never "entries" or
 /// "items", because that is the word on the shelf.
 String titleCount(int n) => '${groupDigits(n)} ${n == 1 ? 'title' : 'titles'}';

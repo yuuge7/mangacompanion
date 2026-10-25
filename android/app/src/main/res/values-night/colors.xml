@@ -2,4 +2,13 @@
 <resources>
     <!-- Matches AppTokens.dark.ground. -->
     <color name="ground">#16232A</color>
+
+    <!-- Home screen widget, from AppTokens.dark. -->
+    <color name="widget_ground">#1F303A</color>
+    <color name="widget_rule">#2C4149</color>
+    <color name="widget_raised">#2A414C</color>
+    <color name="widget_ink">#E7E4DC</color>
+    <color name="widget_ink_faint">#8A9A9E</color>
+    <color name="widget_accent">#E0A93C</color>
+    <color name="widget_done">#6FAE95</color>
 </resources>

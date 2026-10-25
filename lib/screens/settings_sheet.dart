@@ -1,16 +1,14 @@
-import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../csv_export.dart';
 import '../file_export.dart';
 import '../format.dart';
-import '../importers.dart';
+import '../import_flow.dart';
 import '../theme.dart';
 import '../widgets/sheet.dart';
 import '../widgets/undo_snack.dart';
-import 'import_preview.dart';
 
 Future<void> showSettingsSheet(BuildContext context, AppState state) {
   return showModalBottomSheet<void>(
@@ -29,8 +27,8 @@ class _SettingsSheet extends StatefulWidget {
 }
 
 class _SettingsSheetState extends State<_SettingsSheet> {
-  /// 'export' or 'import' while that job is running; null when idle. Both
-  /// rows lock during either, since both touch the same list.
+  /// Id of the row whose job is running; null when idle. All rows lock
+  /// while one runs, since they all touch the same list.
   String? _busy;
 
   AppState get state => widget.state;
@@ -40,14 +38,14 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _export() async {
-    setState(() => _busy = 'export');
+  Future<void> _export({required bool csv}) async {
+    setState(() => _busy = csv ? 'csv' : 'export');
     try {
       final date = DateTime.now().toIso8601String().substring(0, 10);
       final saved = await saveTextFile(
-        fileName: 'manga-companion-$date.json',
-        content: state.exportJson(),
-        mimeType: 'application/json',
+        fileName: 'manga-companion-$date.${csv ? 'csv' : 'json'}',
+        content: csv ? toCsv(state.entries) : state.exportJson(),
+        mimeType: csv ? 'text/csv' : 'application/json',
       );
       if (saved == null) return; // picker dismissed
       _snack('Saved $saved');
@@ -66,63 +64,12 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   Future<void> _import() async {
     setState(() => _busy = 'import');
     try {
-      final picked = await openFile(acceptedTypeGroups: [
-        const XTypeGroup(
-          label: 'Backups and exports',
-          extensions: ['json', 'xml', 'gz', 'tachibk', 'proto'],
-          mimeTypes: [
-            'application/json',
-            'application/xml',
-            'text/xml',
-            'application/gzip',
-            'application/x-gzip',
-            'application/octet-stream',
-          ],
-        ),
-        const XTypeGroup(label: 'Any file'),
-      ]);
-      if (picked == null) return;
-
-      ParsedBackup? backup;
-      try {
-        // Mihon backups run to megabytes; parse off the UI thread.
-        backup = await compute(parseBackupFile, await picked.readAsBytes());
-      } catch (_) {
-        _snack('Could not read that file. Try picking it again.');
-        return;
-      }
-      if (backup == null) {
-        _snack('That is not a file this app can read. Use a backup from '
-            'Manga Companion or Mihon, or a MyAnimeList or Anime-Planet '
-            'export.');
-        return;
-      }
-      if (backup.entries.isEmpty) {
-        _snack('No manga found in that file.');
-        return;
-      }
-      if (!mounted) return;
-
-      final plan = state.planMerge(backup.entries);
-      final mode = await showImportPreview(context,
-          state: state, backup: backup, plan: plan);
-      if (mode == null || !mounted) return;
-
-      final before = state.snapshot();
-      final String message;
-      if (mode == ImportMode.replace) {
-        await state.replaceAll(backup.entries);
-        message =
-            'Replaced your shelf with ${titleCount(backup.entries.length)}';
-      } else {
-        await state.applyMerge(plan);
-        message = 'Merged: ${plan.added.length} added, '
-            '${plan.updated.length} updated';
-      }
-      if (!mounted) return;
+      final outcome = await pickAndImport(context, state);
+      if (outcome == null || !mounted) return;
       Navigator.of(context).pop(); // close settings, show the result on top
       showUndoSnack(context,
-          message: message, onUndo: () => state.replaceAll(before));
+          message: outcome.message,
+          onUndo: () => state.replaceAll(outcome.before));
     } finally {
       if (mounted) setState(() => _busy = null);
     }
@@ -207,9 +154,16 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               _row(
                 icon: Icons.file_download_outlined,
                 title: 'Export a backup',
-                subtitle: 'Write your shelf to a JSON file',
+                subtitle: 'Your whole shelf and history, as JSON',
                 id: 'export',
-                onTap: _export,
+                onTap: () => _export(csv: false),
+              ),
+              _row(
+                icon: Icons.table_chart_outlined,
+                title: 'Export as a spreadsheet',
+                subtitle: 'CSV, for Excel or Google Sheets',
+                id: 'csv',
+                onTap: () => _export(csv: true),
               ),
               _row(
                 icon: Icons.file_upload_outlined,

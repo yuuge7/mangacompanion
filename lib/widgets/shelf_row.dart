@@ -26,9 +26,19 @@ class ShelfRow extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onMarkRead;
-  final ValueChanged<String> onMove;
+  final VoidCallback onReread;
+  final ValueChanged<ShelfStatus> onMove;
   final void Function(int dir) onBump;
   final ValueChanged<int> onRate;
+
+  /// Long-press: starts picking several titles.
+  final VoidCallback onLongPress;
+
+  /// While picking, the whole row is one toggle and its own controls are
+  /// switched off.
+  final bool selecting;
+  final bool selected;
+  final VoidCallback onToggleSelect;
 
   const ShelfRow({
     super.key,
@@ -36,9 +46,14 @@ class ShelfRow extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onMarkRead,
+    required this.onReread,
     required this.onMove,
     required this.onBump,
     required this.onRate,
+    required this.onLongPress,
+    required this.onToggleSelect,
+    this.selecting = false,
+    this.selected = false,
   });
 
   Future<void> _openReadUrl(BuildContext context) async {
@@ -78,7 +93,6 @@ class ShelfRow extends StatelessWidget {
     // height. Otherwise a long title — rotated, its width becomes height —
     // stretches the whole row to the length of the title.
     return Stack(
-      clipBehavior: Clip.hardEdge,
       children: [
         Positioned.fill(child: ColoredBox(color: dye)),
         Positioned.fill(
@@ -192,7 +206,7 @@ class ShelfRow extends StatelessWidget {
         children: [
           // Once you are caught up there is nothing to advance to, so the
           // primary block becomes the one thing left to do.
-          if (caughtUp && item.status == 'reading')
+          if (caughtUp)
             _stepperBlock(
               context,
               flex: 5,
@@ -346,19 +360,24 @@ class ShelfRow extends StatelessWidget {
               onEdit();
             case 'delete':
               onDelete();
+            case 'reread':
+              onReread();
             default:
-              onMove(value);
+              onMove(ShelfStatus.fromJson(value));
           }
         },
         itemBuilder: (_) => [
           const PopupMenuItem(value: 'edit', height: 44, child: Text('Edit')),
-          for (final (id, label) in const [
-            ('reading', 'Move to reading'),
-            ('read', 'Move to read'),
-            ('dropped', 'Move to dropped'),
-          ])
-            if (item.status != id)
-              PopupMenuItem(value: id, height: 44, child: Text(label)),
+          if (item.status == ShelfStatus.read)
+            const PopupMenuItem(
+                value: 'reread', height: 44, child: Text('Read again')),
+          for (final s in ShelfStatus.values)
+            if (item.status != s)
+              PopupMenuItem(
+                value: s.json,
+                height: 44,
+                child: Text('Move to ${s.label.toLowerCase()}'),
+              ),
           PopupMenuItem(
             value: 'delete',
             height: 44,
@@ -373,10 +392,11 @@ class ShelfRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tk;
     final caughtUp = item.isDone;
-    final rated = item.status == 'read';
-    final stale = item.status == 'reading' ? timeAgo(item.lastUpdated) : '';
+    final rated = item.status == ShelfStatus.read;
+    final stale =
+        item.status == ShelfStatus.reading ? timeAgo(item.lastUpdated) : '';
 
-    return DecoratedBox(
+    final row = DecoratedBox(
       position: DecorationPosition.foreground,
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: t.rule)),
@@ -409,7 +429,6 @@ class ShelfRow extends StatelessWidget {
                       // the Wrap absorbs a large text scale without
                       // pushing the timestamp off the row.
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Expanded(
                             child: Wrap(
@@ -423,6 +442,9 @@ class ShelfRow extends StatelessWidget {
                                 if (rated)
                                   StarRating(
                                       value: item.rating, onChanged: onRate),
+                                if (item.rereads > 0)
+                                  _badge(context, 'REREAD ×${item.rereads}',
+                                      t.inkFaint),
                               ],
                             ),
                           ),
@@ -444,6 +466,56 @@ class ShelfRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    return Semantics(
+      selected: selecting ? selected : null,
+      onLongPressHint: selecting ? null : 'select several',
+      child: GestureDetector(
+        onLongPress: selecting ? onToggleSelect : onLongPress,
+        child: ColoredBox(
+          color: selected ? t.surfaceAlt : Colors.transparent,
+          child: Stack(
+            children: [
+              IgnorePointer(ignoring: selecting, child: row),
+              if (selecting)
+                Positioned.fill(
+                  child: Semantics(
+                    button: true,
+                    label: '${selected ? 'Deselect' : 'Select'} ${item.title}',
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onToggleSelect,
+                    ),
+                  ),
+                ),
+              if (selecting)
+                Positioned(
+                  left: 8,
+                  top: 8,
+                  child: _checkmark(t),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Marks the row while picking. Ink on the cover, never the accent.
+  Widget _checkmark(AppTokens t) {
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? t.ink : t.ground.withValues(alpha: 0.85),
+        border: Border.all(color: selected ? t.ink : t.ruleStrong, width: 1.5),
+      ),
+      child: selected
+          ? Icon(Icons.check_rounded, size: 16, color: t.ground)
+          : null,
     );
   }
 }
