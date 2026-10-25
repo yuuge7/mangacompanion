@@ -33,6 +33,17 @@ jobs:
           flutter-version: 3.44.8
           cache: true
 
+      # Checks run before any signing or NDK setup, so a broken commit fails
+      # in seconds and never produces a release.
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
       # path_provider_android pulls in jni, which compiles native code, so the
       # build needs the NDK and CMake that Flutter 3.44.8 pins. Runners do not
       # ship every NDK version and AGP's own download of it is unreliable, so
@@ -96,9 +107,6 @@ jobs:
             NEXT=$(( ${LATEST#v1.} + 1 ))
           fi
           echo "version=1.$NEXT" >> "$GITHUB_OUTPUT"
-
-      - name: Install dependencies
-        run: flutter pub get
 
       - name: Build release APK
         run: flutter build apk --release --build-name=${{ steps.version.outputs.version }} --build-number=${{ github.run_number }}

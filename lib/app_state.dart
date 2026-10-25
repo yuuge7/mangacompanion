@@ -5,12 +5,40 @@ import 'storage.dart';
 
 enum SortMode { recent, title, progress, rating }
 
+/// Where a deleted title sat, so undo can put it back in the same place.
+typedef RemovedEntry = ({int index, MangaEntry entry});
+
+/// What merging a backup would do, worked out before anything changes so
+/// the user can see it first.
+class ImportPlan {
+  /// Titles not on the shelf yet.
+  final List<MangaEntry> added;
+
+  /// Titles on the shelf where the file's copy is newer. Already carry the
+  /// shelf's id, so applying them replaces in place.
+  final List<MangaEntry> updated;
+
+  /// Titles on the shelf where your copy is newer or the same. Left alone.
+  final List<MangaEntry> skipped;
+
+  const ImportPlan({
+    required this.added,
+    required this.updated,
+    required this.skipped,
+  });
+
+  bool get changesAnything => added.isNotEmpty || updated.isNotEmpty;
+}
+
 class AppState extends ChangeNotifier {
   final MangaStore _store;
   List<MangaEntry> entries;
-  SortMode sortMode = SortMode.recent;
+  SortMode sortMode;
 
-  AppState(this._store) : entries = _store.load();
+  AppState(this._store)
+      : entries = _store.load(),
+        sortMode = SortMode.values.asNameMap()[_store.loadSortMode()] ??
+            SortMode.recent;
 
   /// The saved shelf was there but unreadable. Drives the recovery state.
   bool get loadFailed => _store.loadFailed;
@@ -57,6 +85,7 @@ class AppState extends ChangeNotifier {
   void setSort(SortMode mode) {
     sortMode = mode;
     notifyListeners();
+    _store.saveSortMode(mode.name);
   }
 
   Future<void> add(MangaEntry entry) async {
@@ -75,8 +104,29 @@ class AppState extends ChangeNotifier {
     await _persist();
   }
 
-  Future<void> remove(String id) async {
-    entries.removeWhere((e) => e.id == id);
+  /// Returns where the title was, for [restoreRemoved]. Null if it was
+  /// already gone.
+  Future<RemovedEntry?> remove(String id) async {
+    final i = entries.indexWhere((e) => e.id == id);
+    if (i < 0) return null;
+    final entry = entries.removeAt(i);
+    await _persist();
+    return (index: i, entry: entry);
+  }
+
+  /// Undo for [remove].
+  Future<void> restoreRemoved(RemovedEntry removed) async {
+    if (entries.any((e) => e.id == removed.entry.id)) return;
+    entries.insert(removed.index.clamp(0, entries.length), removed.entry);
+    await _persist();
+  }
+
+  /// Deep copy of the shelf, for undoing whole-shelf changes like an import.
+  List<MangaEntry> snapshot() => entries.map((e) => e.copy()).toList();
+
+  /// Swaps the whole shelf. Used by Replace imports and by undo.
+  Future<void> replaceAll(List<MangaEntry> items) async {
+    entries = List.of(items);
     await _persist();
   }
 
@@ -99,31 +149,65 @@ class AppState extends ChangeNotifier {
     await _persist();
   }
 
-  /// Replace wipes the list first; merge
-  /// updates entries with matching id (or same title, so a site export and
-  /// local copy of the same manga don't duplicate) and appends the rest.
-  Future<int> importEntries(List<MangaEntry> imported,
-      {required bool replace}) async {
-    if (replace) {
-      entries = imported;
-      await _persist();
-      return imported.length;
-    }
-    var added = 0;
+  int _indexOfMatch(MangaEntry inc) {
+    final byId = entries.indexWhere((e) => e.id == inc.id);
+    if (byId >= 0) return byId;
+    final key = _titleKey(inc.title);
+    return entries.indexWhere((e) => _titleKey(e.title) == key);
+  }
+
+  static String _titleKey(String title) => title.trim().toLowerCase();
+
+  /// Matches each incoming title to the shelf by id, or by title so a copy
+  /// from another app does not duplicate. A match only wins when its
+  /// [MangaEntry.lastUpdated] is newer, so an old backup can never roll
+  /// your progress back.
+  ImportPlan planMerge(List<MangaEntry> imported) {
+    // A file can list the same title twice; keep its newest copy.
+    final byTitle = <String, MangaEntry>{};
     for (final inc in imported) {
-      final i = entries.indexWhere((e) =>
-          e.id == inc.id ||
-          e.title.trim().toLowerCase() == inc.title.trim().toLowerCase());
-      if (i >= 0) {
-        inc.id = entries[i].id;
-        entries[i] = inc;
-      } else {
-        entries.add(inc);
-        added++;
+      final key = _titleKey(inc.title);
+      final seen = byTitle[key];
+      if (seen == null || inc.lastUpdated > seen.lastUpdated) {
+        byTitle[key] = inc;
       }
     }
+
+    final added = <MangaEntry>[];
+    final updated = <MangaEntry>[];
+    final skipped = <MangaEntry>[];
+    for (final inc in byTitle.values) {
+      final i = _indexOfMatch(inc);
+      if (i < 0) {
+        added.add(inc.copy());
+        continue;
+      }
+      final mine = entries[i];
+      if (inc.lastUpdated <= mine.lastUpdated) {
+        skipped.add(inc);
+        continue;
+      }
+      // Other trackers' files carry less than ours (no cover, no rating),
+      // so keep what the shelf has wherever the file is blank.
+      final next = inc.copy()
+        ..id = mine.id
+        ..addedAt = inc.addedAt < mine.addedAt ? inc.addedAt : mine.addedAt;
+      if (next.coverUrl.isEmpty) next.coverUrl = mine.coverUrl;
+      if (next.readUrl.isEmpty) next.readUrl = mine.readUrl;
+      next.totalChapters ??= mine.totalChapters;
+      if (next.rating == 0) next.rating = mine.rating;
+      updated.add(next);
+    }
+    return ImportPlan(added: added, updated: updated, skipped: skipped);
+  }
+
+  Future<void> applyMerge(ImportPlan plan) async {
+    for (final next in plan.updated) {
+      final i = entries.indexWhere((e) => e.id == next.id);
+      if (i >= 0) entries[i] = next;
+    }
+    entries.addAll(plan.added);
     await _persist();
-    return added;
   }
 
   String exportJson() => MangaStore.toExportJson(entries);

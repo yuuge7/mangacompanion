@@ -1,15 +1,16 @@
-import 'dart:convert';
-
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../file_export.dart';
 import '../format.dart';
-import '../storage.dart';
+import '../importers.dart';
 import '../theme.dart';
 import '../widgets/sheet.dart';
+import '../widgets/undo_snack.dart';
+import 'import_preview.dart';
 
 Future<void> showSettingsSheet(BuildContext context, AppState state) {
   return showModalBottomSheet<void>(
@@ -67,73 +68,64 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     try {
       final picked = await openFile(acceptedTypeGroups: [
         const XTypeGroup(
-          label: 'JSON backup',
-          extensions: ['json'],
-          mimeTypes: ['application/json'],
+          label: 'Backups and exports',
+          extensions: ['json', 'xml', 'gz', 'tachibk', 'proto'],
+          mimeTypes: [
+            'application/json',
+            'application/xml',
+            'text/xml',
+            'application/gzip',
+            'application/x-gzip',
+            'application/octet-stream',
+          ],
         ),
         const XTypeGroup(label: 'Any file'),
       ]);
       if (picked == null) return;
 
-      String raw;
+      ParsedBackup? backup;
       try {
-        raw = utf8.decode(await picked.readAsBytes());
+        // Mihon backups run to megabytes; parse off the UI thread.
+        backup = await compute(parseBackupFile, await picked.readAsBytes());
       } catch (_) {
-        _snack('Could not read that file. It may not be a text backup.');
+        _snack('Could not read that file. Try picking it again.');
         return;
       }
-
-      final entries = MangaStore.parseExport(raw);
-      if (entries == null || entries.isEmpty) {
-        _snack('No titles found in that file. Pick a backup exported from '
-            'Manga Companion.');
+      if (backup == null) {
+        _snack('That is not a file this app can read. Use a backup from '
+            'Manga Companion or Mihon, or a MyAnimeList or Anime-Planet '
+            'export.');
+        return;
+      }
+      if (backup.entries.isEmpty) {
+        _snack('No manga found in that file.');
         return;
       }
       if (!mounted) return;
 
-      final mode = await _askImportMode(entries.length);
+      final plan = state.planMerge(backup.entries);
+      final mode = await showImportPreview(context,
+          state: state, backup: backup, plan: plan);
       if (mode == null || !mounted) return;
 
-      final added =
-          await state.importEntries(entries, replace: mode == 'replace');
+      final before = state.snapshot();
+      final String message;
+      if (mode == ImportMode.replace) {
+        await state.replaceAll(backup.entries);
+        message =
+            'Replaced your shelf with ${titleCount(backup.entries.length)}';
+      } else {
+        await state.applyMerge(plan);
+        message = 'Merged: ${plan.added.length} added, '
+            '${plan.updated.length} updated';
+      }
       if (!mounted) return;
       Navigator.of(context).pop(); // close settings, show the result on top
-      _snack(mode == 'replace'
-          ? 'Replaced your shelf with ${titleCount(entries.length)}'
-          : 'Merged: $added added, ${entries.length - added} updated');
+      showUndoSnack(context,
+          message: message, onUndo: () => state.replaceAll(before));
     } finally {
       if (mounted) setState(() => _busy = null);
     }
-  }
-
-  Future<String?> _askImportMode(int count) {
-    final t = context.tk;
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Import this backup?'),
-        content: Text(
-          'The file holds ${titleCount(count)}.\n\n'
-          'Merge keeps what you have and updates titles it recognises. '
-          'Replace throws away your current shelf first.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, 'replace'),
-            style: TextButton.styleFrom(foregroundColor: t.danger),
-            child: const Text('Replace'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, 'merge'),
-            child: const Text('Merge'),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _row({
@@ -222,7 +214,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               _row(
                 icon: Icons.file_upload_outlined,
                 title: 'Import a backup',
-                subtitle: 'Read a JSON file back in',
+                subtitle: 'From this app, Mihon, MyAnimeList or Anime-Planet',
                 id: 'import',
                 onTap: _import,
               ),

@@ -6,6 +6,7 @@ import '../format.dart';
 import '../models/manga_entry.dart';
 import '../theme.dart';
 import '../widgets/shelf_row.dart';
+import '../widgets/undo_snack.dart';
 import 'edit_sheet.dart';
 import 'settings_sheet.dart';
 import 'stats_sheet.dart';
@@ -77,33 +78,24 @@ class _HomeScreenState extends State<HomeScreen> {
     if (updated != null) await state.update(updated);
   }
 
-  Future<void> _confirmDelete(MangaEntry item) async {
-    final t = context.tk;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete this title?'),
-        content: Text(
-          '${item.title} and its chapter count are removed from this device. '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Keep it'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: t.danger,
-              foregroundColor: t.onAccent,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) await state.remove(item.id);
+  // Undo stands in for a confirmation dialog: one tap to act, one to take
+  // it back.
+  Future<void> _delete(MangaEntry item) async {
+    final removed = await state.remove(item.id);
+    if (removed == null || !mounted) return;
+    showUndoSnack(context,
+        message: 'Deleted ${item.title}',
+        onUndo: () => state.restoreRemoved(removed));
+  }
+
+  Future<void> _move(MangaEntry item, String status) async {
+    final before = item.copy();
+    await state.setStatus(item, status);
+    if (!mounted) return;
+    final shelf = _tabs.firstWhere((t) => t.id == status).label.toLowerCase();
+    showUndoSnack(context,
+        message: 'Moved ${item.title} to $shelf',
+        onUndo: () => state.update(before));
   }
 
   // ---------------------------------------------------------------- header
@@ -458,9 +450,9 @@ class _HomeScreenState extends State<HomeScreen> {
         key: ValueKey(item.id),
         item: item,
         onEdit: () => _editEntry(item),
-        onDelete: () => _confirmDelete(item),
-        onMarkRead: () => state.setStatus(item, 'read'),
-        onMove: (status) => state.setStatus(item, status),
+        onDelete: () => _delete(item),
+        onMarkRead: () => _move(item, 'read'),
+        onMove: (status) => _move(item, status),
         onBump: (dir) => state.bumpChapter(item, dir),
         onRate: (r) => state.setRating(item, r),
       ));

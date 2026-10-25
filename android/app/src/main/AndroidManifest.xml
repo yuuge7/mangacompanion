@@ -8,10 +8,14 @@
             <data android:scheme="https" />
         </intent>
     </queries>
+    <!-- allowBackup off: Android would otherwise copy the shelf to the
+         user's Google Drive. Backups are the user's own export files only. -->
     <application
         android:label="Manga Companion"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"

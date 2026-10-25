@@ -15,7 +15,11 @@ Personal Android manga tracker. Data lives on-device only.
 - 5-star ratings on completed titles
 - Search, and sorting by recent activity / title / progress / rating
 - Stats sheet, read as a statement rather than a dashboard
-- Import/Export: plain JSON array
+- Export: plain JSON array. Import reads that, plus MyAnimeList XML,
+  Anime-Planet JSON and Mihon/Tachiyomi backups (gzipped or not). Merge
+  shows a preview first and never replaces a title with an older copy
+- Undo for delete, status changes and imports
+- Android cloud backup is off; your export files are the only backup
 
 ## Design
 
@@ -41,5 +45,7 @@ icons via `dart run flutter_launcher_icons`).
 
 ## Tests
 
-`flutter test` — covers export parsing (typed/stringly fields,
-null totals, malformed payloads) and export round-trip.
+`flutter test` — covers export parsing and round-trip, the three
+importers, merge rules, undo, sort persistence, and the import preview
+and delete-undo UI. CI runs `flutter analyze` and `flutter test` before
+every release build.

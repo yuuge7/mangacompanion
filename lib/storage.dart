@@ -44,6 +44,13 @@ class MangaStore {
         _key, jsonEncode(entries.map((e) => e.toJson()).toList()));
   }
 
+  static const _sortKey = 'sort-mode';
+
+  /// Name of the last chosen sort, or null if none was ever picked.
+  String? loadSortMode() => _prefs.getString(_sortKey);
+
+  Future<void> saveSortMode(String name) => _prefs.setString(_sortKey, name);
+
   /// Returns null when the file is not a JSON array of entries.
   static List<MangaEntry>? parseExport(String raw) {
     try {
